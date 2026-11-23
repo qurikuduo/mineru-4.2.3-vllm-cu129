@@ -1,0 +1,114 @@
+services:
+  mineru-api-4x:
+    networks:
+      - appnet
+    image: mineru:4.2.3-vllm-cu129
+    container_name: mineru-api-423
+    restart: unless-stopped
+
+    ports:
+      - "28001:8000"
+
+    environment:
+      TZ: Asia/Shanghai
+
+      MINERU_MODEL_SOURCE: local
+      MINERU_MODEL_SMALL_BACKEND: torch
+      MINERU_MODEL_VLM_ENGINE: vllm
+      MINERU_API_ENABLE_FASTAPI_DOCS: "true"
+
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      MODELSCOPE_ENVIRONMENT: offline
+      DO_NOT_TRACK: "1"
+
+    entrypoint: ["mineru-kit"]
+    command:
+      - api-server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tier
+      - standard
+      - --concurrency
+      - "1"
+      - --log-level
+      - info
+
+    ipc: host
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0","1"]
+              capabilities: [gpu]
+
+  mineru-file-parse:
+    networks:
+      - appnet
+    image: mineru:4.2.3-vllm-cu129
+    container_name: mineru-file-parse
+    restart: unless-stopped
+
+    ports:
+      - "28002:8003"
+
+    environment:
+      TZ: Asia/Shanghai
+
+      MINERU_MODEL_SOURCE: local
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      MODELSCOPE_ENVIRONMENT: offline
+      DO_NOT_TRACK: "1"
+
+    entrypoint: ["mineru-kit"]
+    command:
+      - file-parse-server
+      - --api-url
+      - http://mineru-api-423:8000
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8003"
+
+    depends_on:
+      - mineru-api-4x
+
+  mineru-file-parse-json:
+    networks:
+      - appnet
+    image: mineru:4.2.3-vllm-cu129
+    container_name: mineru-file-parse-json
+    restart: unless-stopped
+
+    ports:
+      - "28003:8004"
+
+    environment:
+      TZ: Asia/Shanghai
+      MINERU_FILE_PARSE_URL: http://mineru-file-parse:8003
+      MINERU_API_URL: http://mineru-api-423:8000
+
+    entrypoint: ["python3"]
+    command:
+      - /app/app.py
+
+    depends_on:
+      - mineru-file-parse
+
+networks:
+  appnet:
+    ipam:
+      config:
+        - subnet: 10.200.1.0/24
